@@ -48,9 +48,8 @@ def is_initialized() -> bool:
         status = checkpoint_file.read()
         if status != "COMPLETED":
             raise Exception(INCONSITENT_STATE_ERR)
-        else:
-            logging.info("TheHive and Cortex already initialized")
-            return True
+        logging.info("TheHive and Cortex already initialized")
+        return True
 
 
 def set_initialization_status(completed: bool):

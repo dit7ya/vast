@@ -105,10 +105,7 @@ class VAST:
         if limit == 0:
             return
         cmd = self.cli.export(**VAST._export_args(mode, limit))
-        if expression == "":
-            cmd = cmd.arrow()
-        else:
-            cmd = cmd.arrow(expression)
+        cmd = cmd.arrow(expression) if expression else cmd.arrow()
         proc = cmd.sync_exec()
 
         def log():

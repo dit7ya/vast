@@ -87,7 +87,7 @@ def arrow_dict_to_json_dict(dictionary):
             dictionary[key] = value.isoformat()
         elif value is None or isinstance(value, (int, float, bool)):
             dictionary[key] = value
-        elif not isinstance(value, (int, float, bool)):
+        else:
             dictionary[key] = str(value)
     return dictionary
 
