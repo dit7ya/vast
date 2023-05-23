@@ -20,6 +20,7 @@
 #include "vast/error.hpp"
 #include "vast/ids.hpp"
 #include "vast/logger.hpp"
+#include "vast/operator_control_plane.hpp"
 #include "vast/plugin.hpp"
 #include "vast/query_context.hpp"
 #include "vast/store.hpp"
@@ -263,6 +264,7 @@ caf::error initialize(caf::actor_system_config& cfg) {
   }
   VAST_DEBUG("collected {} global options for plugin initialization",
              global_config.size());
+  std::vector<std::string> disabled_plugins;
   for (auto& plugin : get_mutable()) {
     auto merged_config = record{};
     // First, try to read the configurations from the merged VAST configuration.
@@ -317,6 +319,13 @@ caf::error initialize(caf::actor_system_config& cfg) {
         return std::move(opts.error());
       }
     }
+    // Allow the plugin to control whether it should be loaded based on
+    // its configuration.
+    if (!plugin->enabled(merged_config, global_config)) {
+      VAST_VERBOSE("disabling plugin {}", plugin->name());
+      disabled_plugins.push_back(plugin->name());
+      continue;
+    }
     // Third, initialize the plugin with the merged configuration.
     VAST_VERBOSE("initializing the {} plugin with options: {}", plugin->name(),
                  merged_config);
@@ -326,6 +335,15 @@ caf::error initialize(caf::actor_system_config& cfg) {
                                          "the {} plugin: {} ",
                                          plugin->name(), err));
   }
+  for (auto const& plugin_name : disabled_plugins) {
+    auto& plugins = get_mutable();
+    auto position
+      = std::find_if(plugins.begin(), plugins.end(), [=](const plugin_ptr& p) {
+          return p->name() == plugin_name;
+        });
+    VAST_ASSERT_CHEAP(position != plugins.end());
+    plugins.erase(position);
+  }
   return caf::none;
 }
 
@@ -334,6 +352,25 @@ const std::vector<std::filesystem::path>& loaded_config_files() {
 }
 
 } // namespace plugins
+
+// -- plugin base class -------------------------------------------------------
+
+bool plugin::enabled(const record&, const record& plugin_config) const {
+  auto default_value = true;
+  auto result = try_get_or(plugin_config, "enabled", default_value);
+  if (!result) {
+    VAST_WARN("config option {}.enabled is ignored: expected a boolean",
+              this->name());
+    return default_value;
+  }
+  return *result;
+}
+
+// -- component plugin --------------------------------------------------------
+
+std::string component_plugin::component_name() const {
+  return this->name();
+}
 
 // -- analyzer plugin ---------------------------------------------------------
 
@@ -370,7 +407,7 @@ caf::expected<store_actor_plugin::builder_and_header>
 store_plugin::make_store_builder(system::accountant_actor accountant,
                                  system::filesystem_actor fs,
                                  const vast::uuid& id) const {
-  auto store = make_active_store(content(fs->home_system().config()));
+  auto store = make_active_store();
   if (!store)
     return store.error();
   auto path
@@ -399,6 +436,136 @@ store_plugin::make_store(system::accountant_actor accountant,
                                                  std::move(*store), fs,
                                                  std::move(accountant),
                                                  std::move(path), name());
+}
+
+auto store_plugin::make_parser(std::vector<std::string> args,
+                               generator<chunk_ptr> loader,
+                               operator_control_plane& ctrl) const
+  -> caf::expected<parser> {
+  if (not args.empty()) {
+    return caf::make_error(ec::invalid_argument,
+                           fmt ::format("{} parser expected no arguments, but "
+                                        "got [{}]",
+                                        name(), fmt::join(args, ", ")));
+  }
+  auto store = make_passive_store();
+  if (not store) {
+    return caf::make_error(ec::logic_error,
+                           fmt ::format("{} parser failed to create store: {}",
+                                        name(), store.error()));
+  }
+  return [](generator<chunk_ptr> loader, operator_control_plane& ctrl,
+            std::unique_ptr<passive_store> store,
+            std::string name) -> generator<table_slice> {
+    // TODO: Loading everything into memory here is far from ideal. We should
+    // instead load passive stores incrementally. For now we at least warn the
+    // user that this is experimental.
+    auto chunks = std::vector<chunk_ptr>{};
+    for (auto&& chunk : loader) {
+      if (not chunk || chunk->size() == 0) {
+        co_yield {};
+        continue;
+      }
+      chunks.push_back(std::move(chunk));
+      co_yield {};
+    }
+    if (chunks.size() == 1) {
+      if (auto err = store->load(std::move(chunks.front()))) {
+        ctrl.abort(caf::make_error(ec::format_error,
+                                   "{} parser failed to load: {}", name,
+                                   std::move(err)));
+        co_return;
+      }
+    } else {
+      ctrl.warn(caf::make_error(
+        ec::unspecified, fmt::format("the experimental {} parser does "
+                                     "not currently load files "
+                                     "incrementally and may use an "
+                                     "excessive amount of memory; consider "
+                                     "using 'from file --mmap'",
+                                     name)));
+      auto buffer = std::vector<std::byte>{};
+      for (auto&& chunk : chunks) {
+        buffer.insert(buffer.end(), chunk->begin(), chunk->end());
+      }
+      if (auto err = store->load(chunk::make(std::move(buffer)))) {
+        ctrl.abort(caf::make_error(ec::format_error,
+                                   "{} parser failed to load: {}", name,
+                                   std::move(err)));
+        co_return;
+      }
+    }
+    for (auto&& slice : store->slices()) {
+      co_yield std::move(slice);
+    }
+  }(std::move(loader), ctrl, std::move(*store), name());
+}
+
+auto store_plugin::default_loader(std::span<std::string const>) const
+  -> std::pair<std::string, std::vector<std::string>> {
+  return {"stdin", {}};
+}
+
+auto store_plugin::make_printer(std::span<std::string const> args,
+                                type input_schema,
+                                operator_control_plane& ctrl) const
+  -> caf::expected<printer> {
+  VAST_ASSERT(input_schema != type{});
+  if (not args.empty()) {
+    return caf::make_error(ec::invalid_argument,
+                           fmt ::format("{} printer expected no arguments, but "
+                                        "got [{}]",
+                                        name(), fmt::join(args, ", ")));
+  }
+  auto store = make_active_store();
+  if (not store) {
+    return caf::make_error(ec::logic_error,
+                           fmt ::format("{} parser failed to create store: {}",
+                                        name(), store.error()));
+  }
+
+  class store_printer : public printer_base {
+  public:
+    explicit store_printer(std::unique_ptr<active_store> store,
+                           operator_control_plane& ctrl)
+      : store_{std::move(store)}, ctrl_{ctrl} {
+    }
+
+    auto process(table_slice slice) -> generator<chunk_ptr> override {
+      auto vec = std::vector<table_slice>{};
+      vec.push_back(std::move(slice));
+      if (auto error = store_->add(std::move(vec))) {
+        ctrl_.abort(std::move(error));
+        co_return;
+      }
+      // TODO
+      auto chunk = store_->finish();
+      if (!chunk) {
+        ctrl_.abort(std::move(chunk.error()));
+        co_return;
+      }
+      co_yield std::move(*chunk);
+    }
+
+    auto finish() -> generator<chunk_ptr> override {
+      return {};
+    }
+
+  private:
+    std::unique_ptr<active_store> store_;
+    operator_control_plane& ctrl_;
+  };
+
+  return std::make_unique<store_printer>(std::move(*store), ctrl);
+}
+
+auto store_plugin::default_saver(std::span<std::string const>) const
+  -> std::pair<std::string, std::vector<std::string>> {
+  return {"directory", {"."}};
+}
+
+auto store_plugin::printer_allows_joining() const -> bool {
+  return false;
 }
 
 // -- plugin_ptr ---------------------------------------------------------------

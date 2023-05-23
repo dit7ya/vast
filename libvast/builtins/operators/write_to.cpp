@@ -30,10 +30,9 @@ namespace {
 // TODO: Perhaps unify this with `from_read.cpp::load_parse`.
 auto print_save(auto&& printer, auto&& printer_args, auto&& saver,
                 auto&& saver_args) -> caf::expected<operator_ptr> {
-  auto expanded = fmt::format("print {} {} | save {} {}", printer,
+  auto expanded = fmt::format("local print {} {} | save {} {}", printer,
                               escape_operator_args(printer_args), saver,
                               escape_operator_args(saver_args));
-  VAST_INFO("write/to expanded to '{}'", expanded);
   return pipeline::parse_as_operator(expanded);
 }
 
@@ -77,10 +76,14 @@ public:
 
   auto process(table_slice slice, state_type& state) const
     -> output_type override {
-    for (auto&& x : state.printer(std::move(slice))) {
+    for (auto&& x : state.printer->process(std::move(slice))) {
       state.saver(std::move(x));
     }
     return {};
+  }
+
+  auto location() const -> operator_location override {
+    return operator_location::local;
   }
 
   auto to_string() const noexcept -> std::string override {
@@ -144,17 +147,9 @@ public:
                                                       saver_name, pipeline)),
       };
     }
-    if (saver->saver_does_joining() && not printer->printer_allows_joining()) {
-      return {
-        std::string_view{f, l},
-        caf::make_error(ec::invalid_argument,
-                        fmt::format("writing '{0}' to '{1}' is not allowed; "
-                                    "the connector '{1}' requires a single "
-                                    "input, and the format '{0}' has "
-                                    "potentially multiple outputs",
-                                    printer_name, saver_name)),
-      };
-    }
+    // It could be that `printer->printer_allows_joining()` is false, but
+    // `saver->saver_does_joining()` is true. This can cause conflicts later,
+    // but `print` contains the neccesary checks and would abort the execution.
     if (not saver->saver_does_joining()) {
       return {
         std::string_view{f, l},

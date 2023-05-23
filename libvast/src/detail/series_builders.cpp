@@ -24,7 +24,7 @@ auto builder_provider::provide() -> series_builder& {
     data_);
 }
 
-auto builder_provider::type() -> vast::type {
+auto builder_provider::type() const -> vast::type {
   return std::visit(
     detail::overload{[](const builder_provider_impl&) {
                        return vast::type{};
@@ -35,7 +35,7 @@ auto builder_provider::type() -> vast::type {
     data_);
 }
 
-auto builder_provider::is_builder_constructed() -> bool {
+auto builder_provider::is_builder_constructed() const -> bool {
   return std::holds_alternative<std::reference_wrapper<series_builder>>(data_);
 }
 
@@ -231,11 +231,19 @@ fixed_fields_record_builder::fixed_fields_record_builder(record_type type)
   }
 }
 
-auto fixed_fields_record_builder::get_field_builder(std::string_view field_name)
-  -> series_builder& {
-  VAST_ASSERT(field_builders_.contains(field_name));
-  VAST_ASSERT(field_builders_[field_name]);
-  return *field_builders_[field_name];
+auto fixed_fields_record_builder::get_field_builder_provider(
+  std::string_view field_name) -> builder_provider {
+  if (auto it = field_builders_.find(std::string{field_name});
+      it != field_builders_.end())
+    return {std::ref(*(it->second))};
+  return {[field_name]() -> series_builder& {
+    die(
+      fmt::format("trying to add a value to a non existent field: {}. The "
+                  "parent adaptive_table_slice_builder was forbidden to infer "
+                  "unknown fields. Construct it with allow_fields_discovery "
+                  "set to true if you want the fields to be discovered",
+                  field_name));
+  }};
 }
 
 auto fixed_fields_record_builder::type() const -> const vast::type& {
@@ -250,8 +258,8 @@ auto fixed_fields_record_builder::get_arrow_builder()
 series_builder::series_builder(const vast::type& type, bool are_fields_fixed) {
   caf::visit(
     detail::overload{
-      [this]<class Type>(const Type& t) {
-        *this = concrete_series_builder<Type>{t};
+      [this, &type]<class Type>(const Type&) {
+        *this = concrete_series_builder<Type>{type};
       },
       [this, are_fields_fixed](const record_type& t) {
         if (are_fields_fixed) {
@@ -290,10 +298,7 @@ std::shared_ptr<arrow::ArrayBuilder> series_builder::get_arrow_builder() {
 vast::type series_builder::type() const {
   return std::visit(
     [](const auto& actual) {
-      if constexpr (std::is_same_v<vast::type, decltype(actual.type())>)
         return actual.type();
-      else
-        return vast::type{actual.type()};
     },
     *this);
 }

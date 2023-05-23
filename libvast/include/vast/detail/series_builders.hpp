@@ -40,8 +40,8 @@ public:
   }
 
   auto provide() -> series_builder&;
-  auto type() -> type;
-  auto is_builder_constructed() -> bool;
+  auto type() const -> type;
+  auto is_builder_constructed() const -> bool;
 
 private:
   std::variant<builder_provider_impl, std::reference_wrapper<series_builder>>
@@ -85,13 +85,14 @@ private:
 template <concrete_type Type>
 class concrete_series_builder_base {
 public:
-  explicit concrete_series_builder_base(Type type = Type{})
+  explicit concrete_series_builder_base(vast::type type = vast::type{Type{}})
     : type_{std::move(type)},
-      builder_(type_.make_arrow_builder(arrow::default_memory_pool())) {
+      builder_(caf::get<Type>(type_).make_arrow_builder(
+        arrow::default_memory_pool())) {
   }
 
   auto add(view<type_to_data_t<Type>> view) {
-    const auto s = append_builder(type_, *builder_, view);
+    const auto s = append_builder(caf::get<Type>(type_), *builder_, view);
     VAST_ASSERT(s.ok());
   }
 
@@ -103,7 +104,7 @@ public:
     return builder_;
   }
 
-  auto type() const -> const Type& {
+  auto type() const -> const vast::type& {
     return type_;
   }
 
@@ -127,7 +128,7 @@ public:
   }
 
 protected:
-  Type type_;
+  vast::type type_;
   std::shared_ptr<type_to_arrow_builder_t<Type>> builder_;
 };
 
@@ -145,8 +146,10 @@ public:
     enumeration_type>::concrete_series_builder_base;
 
   auto add(std::string_view string_value) -> void {
-    if (auto resolved = type_.resolve(string_value)) {
-      const auto s = append_builder(type_, *builder_, *resolved);
+    if (auto resolved
+        = caf::get<enumeration_type>(type_).resolve(string_value)) {
+      const auto s = append_builder(caf::get<enumeration_type>(type_),
+                                    *builder_, *resolved);
       VAST_ASSERT(s.ok());
       return;
     }
@@ -192,7 +195,8 @@ class fixed_fields_record_builder : public record_series_builder_base {
 public:
   explicit fixed_fields_record_builder(record_type type);
 
-  auto get_field_builder(std::string_view field_name) -> series_builder&;
+  auto get_field_builder_provider(std::string_view field_name)
+    -> builder_provider;
   auto get_arrow_builder() -> std::shared_ptr<arrow::StructBuilder>;
   auto type() const -> const vast::type&;
 
@@ -290,8 +294,9 @@ private:
                    new_builder.add(view);
                    *this = std::move(new_builder);
                  },
-                 [](auto&) {
-                   die("cast not implemented");
+                 [view](auto&) {
+                   VAST_WARN("cast not implemented: ignoring value {}",
+                             data{materialize(view)});
                  },
                },
                *this);

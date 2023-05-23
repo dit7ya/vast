@@ -14,6 +14,7 @@
 #include "vast/concept/parseable/string/char.hpp"
 #include "vast/concept/parseable/string/char_class.hpp"
 #include "vast/concept/parseable/vast/data.hpp"
+#include "vast/concept/parseable/vast/identifier.hpp"
 #include "vast/detail/string.hpp"
 
 #include <fmt/format.h>
@@ -52,12 +53,10 @@ const inline auto extractor_value_assignment
 const inline auto extractor_value_assignment_list
   = (extractor_value_assignment
      % (optional_ws_or_comment >> ',' >> optional_ws_or_comment));
-constexpr inline auto aggregation_func_char = alnum | chr{'-'};
 const inline auto aggregation_function
   = -(extractor >> optional_ws_or_comment >> '=' >> optional_ws_or_comment)
-    >> (+aggregation_func_char) >> optional_ws_or_comment >> '('
-    >> optional_ws_or_comment >> extractor_list >> optional_ws_or_comment
-    >> ')';
+    >> plugin_name >> optional_ws_or_comment >> '(' >> optional_ws_or_comment
+    >> extractor_list >> optional_ws_or_comment >> ')';
 const inline auto aggregation_function_list
   = (aggregation_function % (',' >> optional_ws_or_comment));
 
@@ -127,8 +126,7 @@ namespace vast {
 /// every `y == operator_arg.apply(x).value()`.
 inline auto escape_operator_arg(std::string_view x) -> std::string {
   auto f = x.begin();
-  parsers::unquoted_operator_arg.parse(f, x.end(), unused);
-  if (f == x.end()) {
+  if ((parsers::unquoted_operator_arg >> parsers::eoi)(f, x.end(), unused)) {
     for (auto y : {"from", "read", "write", "to"}) {
       if (x == y) {
         return fmt::format("'{}'", x);

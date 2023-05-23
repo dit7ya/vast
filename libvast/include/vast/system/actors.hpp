@@ -188,6 +188,12 @@ using accountant_actor = typed_actor_fwd<
   // Conform to the procotol of the STATUS CLIENT actor.
   ::extend_with<status_client_actor>::unwrap;
 
+/// The interface of a PIPELINE EXECUTOR actor.
+using pipeline_executor_actor = system::typed_actor_fwd<
+  // Execute a pipeline, returning the result asynchronously. This must be
+  // called at most once per executor.
+  auto(atom::run)->caf::result<void>>::unwrap;
+
 /// The PARTITION CREATION LISTENER actor interface.
 using partition_creation_listener_actor = typed_actor_fwd<
   auto(atom::update, partition_synopsis_pair)->caf::result<void>,
@@ -391,10 +397,25 @@ using datagram_source_actor = typed_actor_fwd<
   // Conform to the protocol of the SOURCE actor.
   ::extend_with<source_actor>::unwrap_as_broker;
 
+/// The interface of a EXECUTION NODE actor.
+using execution_node_actor = system::typed_actor_fwd<
+  // source
+  auto(atom::run, std::vector<caf::actor> next)->caf::result<void>,
+  // stage / sink
+  auto(caf::stream<framed<table_slice>> in, std::vector<caf::actor> next)
+    ->caf::result<caf::inbound_stream_slot<framed<table_slice>>>,
+  auto(caf::stream<framed<chunk_ptr>> in, std::vector<caf::actor> next)
+    ->caf::result<caf::inbound_stream_slot<framed<chunk_ptr>>>>::unwrap;
+
 /// The interface of the NODE actor.
 using node_actor = typed_actor_fwd<
   // Run an invocation in the node.
   auto(atom::run, invocation)->caf::result<caf::message>,
+  // Execute a REST endpoint on this node.
+  // Note that nodes connected via CAF trust each other completely,
+  // so this skips all authorization and access control mechanisms
+  // that come with HTTP(s).
+  auto(atom::proxy, http_request_description)->caf::result<std::string>,
   // INTERNAL: Spawn component plugins.
   auto(atom::internal, atom::spawn, atom::plugin)->caf::result<void>,
   // Run an invocation in the node that spawns an actor.
@@ -411,7 +432,12 @@ using node_actor = typed_actor_fwd<
   // Retrieve the version of the process running the NODE.
   auto(atom::get, atom::version)->caf::result<record>,
   // Retrieve the configuration of the NODE.
-  auto(atom::config)->caf::result<record>>::unwrap;
+  auto(atom::config)->caf::result<record>,
+  // Spawn a set of execution nodes for a given pipeline. Does not start the
+  // execution nodes.
+  auto(atom::spawn, pipeline)
+    ->caf::result<std::vector<std::pair<execution_node_actor, std::string>>>>::
+  unwrap;
 
 using terminator_actor = typed_actor_fwd<
   // Shut down the given actors.
@@ -430,6 +456,8 @@ CAF_BEGIN_TYPE_ID_BLOCK(vast_actors, caf::id_block::vast_atoms::end)
   VAST_ADD_TYPE_ID((std::filesystem::path))
   VAST_ADD_TYPE_ID(
     (std::vector<std::pair<std::filesystem::path, std::filesystem::path>>))
+  VAST_ADD_TYPE_ID(
+    (std::vector<std::pair<vast::system::execution_node_actor, std::string>>))
 
   VAST_ADD_TYPE_ID((vast::system::accountant_actor))
   VAST_ADD_TYPE_ID((vast::system::active_indexer_actor))

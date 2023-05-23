@@ -22,7 +22,11 @@ namespace {
 
 struct fixture {
   struct mock_control_plane final : operator_control_plane {
-    [[nodiscard]] auto self() noexcept -> caf::event_based_actor& override {
+    auto self() noexcept -> system::execution_node_actor::base& override {
+      FAIL("no mock implementation available");
+    }
+
+    auto node() noexcept -> system::node_actor override {
       FAIL("no mock implementation available");
     }
 
@@ -35,11 +39,6 @@ struct fixture {
     }
 
     auto emit([[maybe_unused]] table_slice metrics) noexcept -> void override {
-      FAIL("no mock implementation available");
-    }
-
-    [[nodiscard]] auto demand([[maybe_unused]] type schema = {}) const noexcept
-      -> size_t override {
       FAIL("no mock implementation available");
     }
 

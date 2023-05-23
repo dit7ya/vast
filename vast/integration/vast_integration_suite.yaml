@@ -722,15 +722,16 @@ tests:
     tags: [server, import-export, cef]
     fixture: ServerTester
     steps:
-      - command: import -b cef
+      - command: exec 'read cef | import'
         input: data/cef/cynet.log
-      - command: import -b cef
+      - command: exec 'read cef | import'
         input: data/cef/checkpoint.log
-      - command: import -b cef
+      - command: exec 'read cef | import'
         input: data/cef/forcepoint.log
       - command: export json 'where cef_version >= 0 && device_vendor == "Cynet"'
       - command: export json 'where 172.31.5.93'
       - command: export json 'where act == /Accept|Bypass/'
+      - command: export json 'where dvc == 10.1.1.8'
 
   Patterns:
     fixture: ServerTester
@@ -774,3 +775,132 @@ tests:
     tags: [pipelines]
     steps:
       - command: exec 'from file @./data/json/record-in-list.json read json | write json to stdout'
+
+  # TODO: uncomment once casting is implemented (uint64_t <-> int64_t is needed)
+  # Read from suricata file:
+  #   tags: [pipelines]
+  #   steps:
+  #     - command: exec 'from file @./data/suricata/eve.json read suricata | write json to stdout'
+
+  Measure Events:
+    tags: [pipelines]
+    steps:
+      - command: exec 'read json | measure | drop timestamp | write json'
+        input: data/json/files.log.json.gz
+      - command: exec 'read json | measure | measure | drop timestamp | write json'
+        input: data/json/files.log.json.gz
+      - command: exec 'read json | measure --real-time | drop timestamp | write json'
+        input: data/json/files.log.json.gz
+      - command: exec 'read json | measure --real-time | measure | drop timestamp | write json'
+        input: data/json/files.log.json.gz
+
+  Measure Bytes:
+    tags: [pipelines]
+    steps:
+      - command: exec 'load stdin | measure | drop timestamp | write json'
+        input: data/json/conn.log.json.gz
+      - command: exec 'load stdin | measure | measure | drop timestamp | write json'
+        input: data/json/conn.log.json.gz
+      - command: exec 'load stdin | measure --real-time | drop timestamp | write json'
+        input: data/json/conn.log.json.gz
+      - command: exec 'load stdin | measure --real-time | measure | drop timestamp | write json'
+        input: data/json/conn.log.json.gz
+
+  Measure Incremental:
+    tags: [pipelines]
+    steps:
+      - command: exec 'read cef | repeat 10 | measure --cumulative | drop timestamp | write json'
+        input: data/cef/checkpoint.log
+      - command: exec 'read cef | repeat 10 | measure --cumulative --real-time | drop timestamp | write json'
+        input: data/cef/checkpoint.log
+      - command: exec 'load stdin | repeat 10 | measure --cumulative | drop timestamp | write json'
+        input: data/zeek/conn.log.gz
+      - command: exec 'load stdin | repeat 10 | measure --cumulative --real-time | drop timestamp | write json'
+        input: data/zeek/conn.log.gz
+
+  Empty Record in Pipeline:
+    tags: [pipelines]
+    steps:
+      - command: exec 'from - read json| write json to stdout'
+        input: data/json/empty-record.json
+      - command: exec 'from - read json | write csv to stdout'
+        input: data/json/empty-record.json
+      - command: exec 'from - read json | write xsv to stdout'
+        input: data/json/empty-record.json
+
+  Repeat:
+    tags: [pipelines, repeat]
+    steps:
+      - command: exec 'load file - | parse cef | write json'
+        input: data/cef/forcepoint.log
+      - command: exec 'load file - | repeat 5 | parse cef | write json'
+        input: data/cef/forcepoint.log
+      - command: exec 'load file - | parse cef | repeat 5 | write json'
+        input: data/cef/forcepoint.log
+      - command: exec 'load file - | parse cef | measure | summarize sum(events) by schema | write json'
+        input: data/cef/forcepoint.log
+      - command: exec 'load file - | repeat 5 | parse cef | measure | summarize sum(events) by schema | write json'
+        input: data/cef/forcepoint.log
+      - command: exec 'load file - | parse cef | repeat 5 | measure | summarize sum(events) by schema | write json'
+        input: data/cef/forcepoint.log
+
+  Zeek TSV Pipeline Format:
+    tags: [pipelines, zeek]
+    steps:
+      - command: exec 'from stdin read zeek-tsv | write json to stdout'
+        input: data/zeek/merge.log
+      - command: exec 'from stdin read zeek-tsv | write json to stdout'
+        input: data/zeek/merge_with_whitespace_separation.log
+      - command: exec 'from stdin read zeek-tsv | head 300 | write zeek-tsv to stdout'
+        input: data/zeek/dns.log.gz
+      - command: exec 'from stdin read zeek-tsv | head 300 | write csv to stdout'
+        input: data/zeek/dns.log.gz
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv --set-separator=";" --empty-field="empty" --unset-field="NULLVAL" to stdout'
+        input: data/zeek/whitespace_start.log
+      - command: exec 'from stdin read json | write zeek-tsv to stdout'
+        input: data/json/snmp.log.json.gz
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/empty.log
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_no_separator_header.log
+        expected_result: error
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_no_set_separator_header.log
+        expected_result: error
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_no_separator_value.log
+        expected_result: error
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_no_empty_and_unset_fields.log
+        expected_result: error
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_unequal_fields_types_length.log
+        expected_result: error
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_duplicate_close_tag.log
+        expected_result: error
+      - command: exec 'from stdin read zeek-tsv | write zeek-tsv to stdout'
+        input: data/zeek/broken_data_after_close_tag.log
+        expected_result: error
+
+  Enumerate:
+    tags: [pipelines]
+    steps:
+      - command: -N import -n 10 zeek
+        input: data/zeek/conn.log.gz
+      - command: -N import -n 10 zeek
+        input: data/zeek/dns.log.gz
+      - command: -N export json 'select uid | enumerate index'
+      - command: -N export json 'select uid | enumerate uid'
+
+  Sort:
+    tags: [pipelines, zeek]
+    steps:
+      - command: exec 'read zeek-tsv | select ts, uid | sort ts | write json'
+        input: data/zeek/merge.log
+      - command: exec 'read zeek-tsv | select uid | sort uid desc | write json'
+        input: data/zeek/merge.log
+      - command: exec 'read zeek-tsv | head | select service | sort service | write json'
+        input: data/zeek/conn.log.gz
+      - command: exec 'read zeek-tsv | head | select service | sort service nulls-first | write json'
+        input: data/zeek/conn.log.gz
