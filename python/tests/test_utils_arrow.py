@@ -11,7 +11,7 @@ def test_ip_ip_extension_type():
     arr.validate()
     assert arr.type is ty
     assert arr[0].as_py() == ipaddress.IPv4Address("10.1.21.165")
-    assert arr[1].as_py() == None
+    assert arr[1].as_py() is None
 
 
 def test_subnet_extension_type():
@@ -20,7 +20,7 @@ def test_subnet_extension_type():
     arr.validate()
     assert arr.type is ty
     assert arr[0].as_py() == ipaddress.IPv4Network("10.1.21.0/24")
-    assert arr[1].as_py() == None
+    assert arr[1].as_py() is None
     assert arr[2].as_py() == ipaddress.IPv4Network("10.1.20.0/25")
 
 

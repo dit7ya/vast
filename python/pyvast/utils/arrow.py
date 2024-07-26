@@ -26,10 +26,10 @@ class IPType(pa.ExtensionType):
         return self.ext_name.encode()
 
     @classmethod
-    def __arrow_ext_deserialize__(self, storage_type, serialized: bytes):
-        if serialized.decode() != self.ext_name:
+    def __arrow_ext_deserialize__(cls, storage_type, serialized: bytes):
+        if serialized.decode() != cls.ext_name:
             raise TypeError("type identifier does not match")
-        if storage_type != self.ext_type:
+        if storage_type != cls.ext_type:
             raise TypeError("storage type does not match")
         return IPType()
 
@@ -60,10 +60,10 @@ class SubnetType(pa.ExtensionType):
         return self.ext_name.encode()
 
     @classmethod
-    def __arrow_ext_deserialize__(self, storage_type, serialized: bytes):
-        if serialized.decode() != self.ext_name:
+    def __arrow_ext_deserialize__(cls, storage_type, serialized: bytes):
+        if serialized.decode() != cls.ext_name:
             raise TypeError("type identifier does not match")
-        if storage_type != self.ext_type:
+        if storage_type != cls.ext_type:
             raise TypeError("storage type does not match")
         return SubnetType()
 
@@ -105,9 +105,9 @@ class EnumType(pa.ExtensionType):
         return json.dumps(self._fields).encode()
 
     @classmethod
-    def __arrow_ext_deserialize__(self, storage_type, serialized: bytes):
+    def __arrow_ext_deserialize__(cls, storage_type, serialized: bytes):
         fields = json.loads(serialized.decode())
-        if storage_type != self.ext_type:
+        if storage_type != cls.ext_type:
             raise TypeError("storage type does not match")
         return EnumType(fields)
 

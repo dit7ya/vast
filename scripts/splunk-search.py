@@ -85,51 +85,46 @@ Interplunk format for multivalues: values are wrapped in '$'
 and separated using ';'. Literal '$' values are represented with'$$'
 '''
 def getEncodedMV(vals):
-    s = ""
-    for val in vals:
-        val = val.replace('$', '$$')
-        if len(s):
-            s += ';'
-        s += '$' + val + '$'
-    return s
+  s = ""
+  for val in vals:
+    val = val.replace('$', '$$')
+    if len(s):
+        s += ';'
+    s += f'${val}$'
+  return s
 
 def outputResults(results, fields = None, mvdelim = '\n',
                   outputfile = sys.stdout):
-    '''
+  '''
     Outputs the contents of a result set to STDOUT in Interplunk format.
     '''
     
-    if results == None:
-        return
-    
-    s = set()
+  if results is None:
+    return
 
-    '''
+  s = set()
+
+  '''
     Check each entry to see if it is a list (multivalued). If so, set
     the multivalued key to the proper encoding. Replace the list with a
     newline separated string of the values
     '''
-    for i in range(1,len(results)+1):
-        for key in results[str(i)].keys():
-            if(isinstance(results[str(i)][key], list)):
-                results[str(i)]['__mv_' + key] = \
-                  getEncodedMV(results[str(i)][key])
-                results[str(i)][key] = \
-                  string.join(results[str(i)][key], mvdelim)
-                if not fields.count('__mv_' + key):
-                  fields.append('__mv_' + key)
-        s.update(results[str(i)].keys())
+  for i in range(1,len(results)+1):
+    for key in results[str(i)].keys():
+      if (isinstance(results[str(i)][key], list)):
+        results[str(i)][f'__mv_{key}'] = getEncodedMV(results[str(i)][key])
+        results[str(i)][key] = \
+          string.join(results[str(i)][key], mvdelim)
+        if not fields.count(f'__mv_{key}'):
+          fields.append(f'__mv_{key}')
+    s.update(results[str(i)].keys())
 
-    if fields is None:
-        h = list(s)
-    else:
-        h = fields
-    
-    dw = csv.DictWriter(outputfile, h)
+  h = list(s) if fields is None else fields
+  dw = csv.DictWriter(outputfile, h)
 
-    dw.writerow(dict(zip(h, h)))
-    for i in range(1,len(results)+1):
-      dw.writerow(results[str(i)])
+  dw.writerow(dict(zip(h, h)))
+  for i in range(1,len(results)+1):
+    dw.writerow(results[str(i)])
 
 def printHelp(parser):
   # Print help message diferently from cmdline and from Splunk

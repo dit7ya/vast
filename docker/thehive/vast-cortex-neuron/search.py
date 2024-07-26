@@ -51,19 +51,13 @@ class VastAnalyzer(Analyzer):
             self.unexpectedError(error)
 
     def summary(self, raw):
-        taxonomies = []
         namespace = "VAST"
         predicate = "Hits"
 
         valuesCount = len(raw["values"])
         value = f"{valuesCount}"
-        if valuesCount > 0:
-            level = "suspicious"
-        else:
-            level = "safe"
-
-        taxonomies.append(self.build_taxonomy(level, namespace, predicate, value))
-
+        level = "suspicious" if valuesCount > 0 else "safe"
+        taxonomies = [self.build_taxonomy(level, namespace, predicate, value)]
         return {"taxonomies": taxonomies}
 
 

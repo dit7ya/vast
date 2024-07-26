@@ -9,8 +9,7 @@ new_array = vua.extension_array
 
 def native_types_batch() -> pa.RecordBatch:
     """Create single rowed RecordBatch with all native Arrow types"""
-    arrays = []
-    arrays.append(new_array([None], pa.null()))
+    arrays = [new_array([None], pa.null())]
     arrays.append(new_array([True], pa.bool_()))
     arrays.append(new_array([1], pa.int8()))
     arrays.append(new_array([2], pa.int16()))
@@ -50,8 +49,7 @@ def native_types_batch() -> pa.RecordBatch:
 
 def extension_types_batch() -> pa.RecordBatch:
     """Create single rowed RecordBatch with all VAST extension types"""
-    arrays = []
-    arrays.append(new_array(["10.1.21.165"], vua.IPType()))
+    arrays = [new_array(["10.1.21.165"], vua.IPType())]
     arrays.append(new_array(["10.1.20.0/25"], vua.SubnetType()))
     fields = {"foo": 1, "bar": 2, "baz": 4}
     arrays.append(new_array(["foo"], vua.EnumType(fields)))

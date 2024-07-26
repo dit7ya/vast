@@ -115,16 +115,16 @@ def try_wait(process, timeout, expected_result):
         # Ignore SIGPIPE errors
         if process.wait(timeout) not in [0, -13]:
             log = LOGGER.error
-            if expected_result == Result.ERROR or expected_result == Result.IGNORE:
+            if expected_result in [Result.ERROR, Result.IGNORE]:
                 log = LOGGER.debug
             log(f"{process.args} returned {process.returncode}")
             return Result.ERROR
         return Result.SUCCESS
     except subprocess.TimeoutExpired:
-        if expected_result == Result.TIMEOUT or expected_result == Result.IGNORE:
-            LOGGER.debug(f"expected timeout reached, terminating process")
+        if expected_result in [Result.TIMEOUT, Result.IGNORE]:
+            LOGGER.debug("expected timeout reached, terminating process")
         else:
-            LOGGER.error(f"timeout reached, terminating process")
+            LOGGER.error("timeout reached, terminating process")
         process.terminate()
         return Result.TIMEOUT
 
@@ -171,9 +171,7 @@ class TestSummary:
             self.errors += 1
         elif result is Result.TIMEOUT:
             self.timeouts += 1
-        else:
-            pass
-        if result != expected_result and expected_result != Result.IGNORE:
+        if result != expected_result != Result.IGNORE:
             self.unexpected_results += 1
 
     def dominant_state(self):
@@ -182,9 +180,7 @@ class TestSummary:
             return Result.ERROR
         if self.timeouts > 0:
             return Result.TIMEOUT
-        if self.failed > 0:
-            return Result.FAILURE
-        return Result.SUCCESS
+        return Result.FAILURE if self.failed > 0 else Result.SUCCESS
 
     def successful(self):
         return self.unexpected_results == 0
@@ -275,7 +271,7 @@ def run_step(
                         env=env,
                     ).stdout.decode("utf8")
                 except subprocess.TimeoutExpired:
-                    LOGGER.error(f"timeout reached, terminating transformation")
+                    LOGGER.error("timeout reached, terminating transformation")
                     return Result.TIMEOUT
             else:
                 out = out_handle.read()
@@ -288,26 +284,20 @@ def run_step(
                     for line in output_lines:
                         ref_handle.write(line)
                 return Result.SUCCESS
-            baseline_lines = []
-            if baseline.exists():
-                baseline_lines = open(baseline).readlines()
+            baseline_lines = open(baseline).readlines() if baseline.exists() else []
             diff = difflib.unified_diff(
                 baseline_lines,
                 output_lines,
                 fromfile=str(baseline),
                 tofile=str(stdout),
             )
-            delta = list(diff)
-            if delta:
-                if (
-                    expected_result != Result.FAILURE
-                    and expected_result != Result.IGNORE
-                ):
+            if delta := list(diff):
+                if expected_result not in [Result.FAILURE, Result.IGNORE]:
                     LOGGER.warning("baseline comparison failed")
                     sys.stdout.writelines(delta)
                 return Result.FAILURE
     except subprocess.CalledProcessError as err:
-        if expected_result != Result.ERROR and expected_result != Result.IGNORE:
+        if expected_result not in [Result.ERROR, Result.IGNORE]:
             LOGGER.error(err)
         return Result.ERROR
     return result
@@ -327,22 +317,19 @@ class Server:
         **kwargs,
     ):
         self.app = app
-        if config_file:
-            self.config_arg = f"--config={SET_DIR/config_file}"
-        else:
-            self.config_arg = None
+        self.config_arg = f"--config={SET_DIR / config_file}" if config_file else None
         self.name = name
         self.cwd = work_dir / self.name
         self.port = port
         command = [self.app, "--bare-mode"]
         if self.config_arg:
             command.append(self.config_arg)
-        command = command + args
+        command += args
         LOGGER.debug(f"starting server fixture: {command}")
         LOGGER.debug(f"waiting for port {self.port} to be available")
         if not wait.tcp.closed(self.port, timeout=5):
             LOGGER.warning(
-                f"Couldn't aquire port, attempting to kill lingering subprocesses"
+                "Couldn't aquire port, attempting to kill lingering subprocesses"
             )
             signal_subprocs(signal.SIGKILL)
             if not wait.tcp.closed(self.port, timeout=5):
@@ -368,7 +355,7 @@ class Server:
         command = [self.app, "--bare-mode"]
         if self.config_arg:
             command.append(self.config_arg)
-        command = command + ["-e", f":{self.port}", "stop"]
+        command += ["-e", f":{self.port}", "stop"]
         LOGGER.debug(f"stopping server fixture: {command}")
         stop_out = open(self.cwd / "stop.out", "w")
         stop_err = open(self.cwd / "stop.err", "w")
@@ -411,15 +398,12 @@ class Tester:
             self.test_dir.rmdir()
 
     def check_condition(self, condition):
-        check = spawn(self.app + " " + condition.subcommand, shell=True)
-        ret = check.wait(STEP_TIMEOUT)
-        return ret
+        check = spawn(f"{self.app} {condition.subcommand}", shell=True)
+        return check.wait(STEP_TIMEOUT)
 
     def check_skip(self, test):
         """Checks if a test should run if a condition is defined"""
-        if test.condition:
-            return self.check_condition(test.condition)
-        return False
+        return self.check_condition(test.condition) if test.condition else False
 
     def check_guards(self, steps):
         result = []
@@ -446,7 +430,7 @@ class Tester:
         step_i = 0
         # Locate fixture.
         dummy_fixture = Fixture("pass", "pass")
-        fixture = dummy_fixture if not test.fixture else self.fixtures.get(test.fixture)
+        fixture = self.fixtures.get(test.fixture) if test.fixture else dummy_fixture
         cmd = [self.cmd, "--bare-mode"]
         if test.config_file:
             cmd.append(f"--config={test.config_file}")
@@ -602,7 +586,7 @@ def run(args, test_dec):
     if args.disable:
         # Remove disabled tests
         disabled = list(map(str.lower, args.disable))
-        tests = {k: tests[k] for k in tests.keys() if not match(k, disabled)}
+        tests = {k: tests[k] for k in tests if not match(k, disabled)}
     if args.dry_run:
         print(tests.keys())
         return
@@ -621,13 +605,15 @@ def run(args, test_dec):
                 test_result = Result.FAILURE
                 for i in range(0, args.repetitions):
                     test_result = tester.run(name, definition)
-                    if test_result is not Result.SUCCESS:
-                        if i < args.repetitions - 1:
-                            # Try again.
-                            LOGGER.warning(
-                                f"Re-running test {name} {i+2}/{args.repetitions}"
-                            )
-                            continue
+                    if (
+                        test_result is not Result.SUCCESS
+                        and i < args.repetitions - 1
+                    ):
+                        # Try again.
+                        LOGGER.warning(
+                            f"Re-running test {name} {i+2}/{args.repetitions}"
+                        )
+                        continue
                     if test_result is not Result.SUCCESS:
                         result = False
                     # Only timeouts trigger repetitions.

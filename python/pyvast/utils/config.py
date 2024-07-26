@@ -20,9 +20,9 @@ def create() -> Config:
         envvar_prefix="VAST",
     )
     settings.validators.register(
-        Validator(PREFIX + "console-verbosity", default="debug"),
-        Validator(PREFIX + "file-verbosity", default="quiet"),
-        Validator(PREFIX + "log-file", default="vast.log"),
+        Validator(f"{PREFIX}console-verbosity", default="debug"),
+        Validator(f"{PREFIX}file-verbosity", default="quiet"),
+        Validator(f"{PREFIX}log-file", default="vast.log"),
     )
     settings.validators.validate_all()
     return Config(settings)
